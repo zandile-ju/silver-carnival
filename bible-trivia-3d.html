@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bible Trivia 3D — Boys vs Girls</title>
+  <style>
+    :root{--bg:#071225;--panel:#0f1724;--accent:#ffd166;--muted:#9fb3c8}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#071225,#021018);font-family:Inter,system-ui,Arial;color:#eaf6ff}
+    .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px}
+    .game-card{width:1100px;max-width:100%;display:grid;grid-template-columns:1fr 420px;gap:18px}
+    @media (max-width:1100px){.game-card{grid-template-columns:1fr;}}
+    .scene{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:12px;box-shadow:0 8px 30px rgba(0,0,0,0.6)}
+    #canvas3d{display:block;width:100%;height:560px;border-radius:8px;background:transparent}
+    .panel{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:16px;border-radius:12px;overflow-y:auto;max-height:560px}
+    h1{margin:0;font-size:20px}
+    p.lead{margin:6px 0 12px;color:var(--muted)}
+    .score-row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+    .stat{flex:1;background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;text-align:center;min-width:110px}
+    .stat .label{font-size:12px;color:var(--muted)}
+    .stat .value{font-weight:800;font-size:18px}
+    .question{background:rgba(255,255,255,0.02);padding:12px;border-radius:8px;margin-bottom:10px}
+    .answers{display:flex;flex-direction:column;gap:8px}
+    .answer{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);cursor:pointer;user-select:none}
+    .answer.correct{border-color:rgba(34,197,94,0.6);background:rgba(34,197,94,0.06)}
+    .answer.wrong{border-color:rgba(255,99,99,0.6);background:rgba(255,99,99,0.04)}
+    .controls{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+    button.btn{flex:1;padding:10px;border-radius:10px;border:0;background:linear-gradient(90deg,var(--accent),#ffb84d);color:#082018;font-weight:700;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:10px;border-radius:8px}
+    .teams{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .team{background:rgba(255,255,255,0.02);padding:10px;border-radius:8px}
+    .team h3{margin:0 0 6px;font-size:15px}
+    .player{display:flex;justify-content:space-between;font-size:13px;margin:2px 0;padding:6px;border-radius:6px}
+    .player.active{background:rgba(255,255,255,0.02);box-shadow:inset 0 0 0 2px rgba(255,209,102,0.07)}
+    footer{margin-top:12px;font-size:12px;color:var(--muted)}
+    .small{font-size:13px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="game-card">
+      <div class="scene">
+        <canvas id="canvas3d"></canvas>
+      </div>
+
+      <div class="panel">
+        <h1>Bible Trivia 3D — Boys vs Girls</h1>
+        <p class="lead">Mode: <span id="modeLabel">—</span> · Turn: <strong id="turnLabel">—</strong></p>
+
+        <div class="score-row">
+          <div class="stat"><div class="label">Team Boys Lives</div><div class="value" id="faithLives">3</div></div>
+          <div class="stat"><div class="label">Team Girls Lives</div><div class="value" id="hopeLives">3</div></div>
+          <div class="stat"><div class="label">You</div><div class="value" id="playerLives">-</div></div>
+        </div>
+
+        <div class="question" id="questionBox">
+          <div id="questionText" style="font-weight:700">Choose mode to begin</div>
+          <div class="small" id="questionSub">Pick Single Player or Team Mode</div>
+        </div>
+
+        <div class="answers" id="answers"></div>
+
+        <div class="controls">
+          <button class="btn" id="singlePlayerBtn">Single Player</button>
+          <button class="btn" id="teamModeBtn">Team Mode</button>
+          <button class="ghost" id="skipBtn" style="display:none">Skip Turn</button>
+          <button class="ghost" id="resetBtn">Reset Scores</button>
+        </div>
+
+        <div class="teams">
+          <div class="team" id="faithTeam">
+            <h3>Team Boys</h3>
+          </div>
+          <div class="team" id="hopeTeam">
+            <h3>Team Girls</h3>
+          </div>
+        </div>
+
+        <footer>Questions are stored inside the code (see the QUESTIONS object). To add your own, edit that section.</footer>
+      </div>
+    </div>
+  </div>
+
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script>
+/* =========================
+   QUESTIONS: How to add your own
+   =========================
+   QUESTIONS is an object with categories (old/new) each containing difficulty levels.
+   Each question is { q: 'Question text', choices: [...], a: indexOfCorrectChoice }
+   Example:
+     QUESTIONS.old.easy.push({ q: 'Who...', choices: ['A','B','C','D'], a: 0 });
+   Keep choices length consistent (4 recommended).
+*/
+
+const QUESTIONS = {
+  old: {
+    easy: [
+      { q: 'Who built the ark?', choices: ['Noah','Moses','Abraham','David'], a: 0 },
+      { q: 'Who led Israel out of Egypt?', choices: ['Moses','Joshua','Aaron','Joseph'], a: 0 }
+    ],
+    medium: [
+      { q: 'How many days did it rain in the flood?', choices: ['20','30','40','50'], a: 2 },
+      { q: 'Who interpreted Pharaoh\'s dreams in Egypt?', choices: ['Daniel','Joseph','Moses','Joshua'], a: 1 }
+    ],
+    hard: [
+      { q: 'Which king saw the writing on the wall?', choices: ['Nebuchadnezzar','Belshazzar','Darius','Cyrus'], a: 1 },
+      { q: 'What bird brought Noah an olive leaf?', choices: ['Raven','Dove','Eagle','Sparrow'], a: 1 }
+    ]
+  },
+  new: {
+    easy: [
+      { q: 'Who was the mother of Jesus?', choices: ['Mary','Elizabeth','Martha','Anna'], a: 0 },
+      { q: 'Where was Jesus born?', choices: ['Bethlehem','Nazareth','Jerusalem','Galilee'], a: 0 }
+    ],
+    medium: [
+      { q: 'Who betrayed Jesus?', choices: ['Peter','Judas','John','Thomas'], a: 1 },
+      { q: 'What was Paul\'s name before conversion?', choices: ['Saul','Simon','Stephen','Silas'], a: 0 }
+    ],
+    hard: [
+      { q: 'Who wrote the Book of Revelation?', choices: ['John','Peter','Paul','James'], a: 0 },
+      { q: 'Which disciple doubted until he saw Jesus?', choices: ['Thomas','Philip','Andrew','Matthew'], a: 0 }
+    ]
+  }
+};
+
+// --- Game state ---
+let gameMode = null; // 'single' or 'team'
+let currentCategory = null; // 'old' or 'new'
+let currentLevel = null; // 'easy'|'medium'|'hard'
+
+let player = { name: 'You', lives: 3, score: 0 };
+let teams = {
+  faith: { name: 'Boys', lives: 3, players: [], score: 0 },
+  hope: { name: 'Girls', lives: 3, players: [], score: 0 }
+};
+
+for (let i = 1; i <= 5; i++) {
+  teams.faith.players.push({ name: 'Boy ' + i, score: 0 });
+  teams.hope.players.push({ name: 'Girl ' + i, score: 0 });
+}
+
+let currentTeam = 'faith'; // 'faith' or 'hope'
+let currentPlayerIndex = 0; // 0..4 for team mode
+
+// UI refs
+const qText = document.getElementById('questionText');
+const qSub = document.getElementById('questionSub');
+const answersDiv = document.getElementById('answers');
+const faithLivesEl = document.getElementById('faithLives');
+const hopeLivesEl = document.getElementById('hopeLives');
+const playerLivesEl = document.getElementById('playerLives');
+const faithTeamEl = document.getElementById('faithTeam');
+const hopeTeamEl = document.getElementById('hopeTeam');
+const modeLabel = document.getElementById('modeLabel');
+const turnLabel = document.getElementById('turnLabel');
+const skipBtn = document.getElementById('skipBtn');
+const resetBtn = document.getElementById('resetBtn');
+
+// Audio
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const audioCtx = AudioCtx ? new AudioCtx() : null;
+function playTone(freq, duration=0.12) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = 'sine'; o.frequency.value = freq;
+  g.gain.value = 0.08; g.connect(audioCtx.destination);
+  o.connect(g); o.start(); o.stop(audioCtx.currentTime + duration);
+}
+
+// Helpers
+function randFrom(arr) { return arr[Math.floor(Math.random()*arr.length)]; }
+function updateUI() {
+  faithLivesEl.textContent = teams.faith.lives;
+  hopeLivesEl.textContent = teams.hope.lives;
+  playerLivesEl.textContent = gameMode==='single'?player.lives:'-';
+  renderTeamsList();
+  modeLabel.textContent = gameMode ? (gameMode==='single'?'Single Player':'Team Mode') : '—';
+  updateTurnLabel();
+}
+
+function renderTeamsList() {
+  faithTeamEl.innerHTML = '<h3>Team Boys</h3>' + teams.faith.players.map((p,i)=>`<div class="player ${currentTeam==='faith' && i===currentPlayerIndex ? 'active' : ''}">${p.name}<span>${p.score}</span></div>`).join('');
+  hopeTeamEl.innerHTML = '<h3>Team Girls</h3>' + teams.hope.players.map((p,i)=>`<div class="player ${currentTeam==='hope' && i===currentPlayerIndex ? 'active' : ''}">${p.name}<span>${p.score}</span></div>`).join('');
+}
+
+function updateTurnLabel() {
+  if (!gameMode) { turnLabel.textContent = '—'; return; }
+  if (gameMode === 'single') {
+    turnLabel.textContent = 'Your Turn';
+  } else {
+    const pName = teams[currentTeam].players[currentPlayerIndex].name;
+    turnLabel.textContent = `${pName}'s Turn (${teams[currentTeam].name})`;
+  }
+}
+
+// Game flow
+function chooseCategory() {
+  answersDiv.innerHTML = '';
+  qText.textContent = (gameMode==='single' ? 'Your' : (currentTeam==='faith'?'Boys':'Girls')) + ': Choose category';
+  qSub.textContent = 'Old or New Testament';
+  ['Old Testament','New Testament'].forEach(cat => {
+    const b = document.createElement('div'); b.className='answer'; b.textContent = cat;
+    b.onclick = () => chooseDifficulty(cat==='Old Testament'?'old':'new');
+    answersDiv.appendChild(b);
+  });
+}
+
+function chooseDifficulty(category) {
+  currentCategory = category;
+  answersDiv.innerHTML = '';
+  qText.textContent = 'Choose difficulty';
+  qSub.textContent = `Category: ${category.toUpperCase()}`;
+  ['Easy','Medium','Hard'].forEach(level => {
+    const b = document.createElement('div'); b.className='answer'; b.textContent = level;
+    b.onclick = () => startQuestion(level.toLowerCase());
+    answersDiv.appendChild(b);
+  });
+}
+
+function startQuestion(level) {
+  currentLevel = level;
+  const pool = QUESTIONS[currentCategory][currentLevel];
+  if (!pool || pool.length===0) {
+    qText.textContent = 'No questions in this pool. Edit QUESTIONS in the code to add more.';
+    answersDiv.innerHTML = '';
+    return;
+  }
+  const q = randFrom(pool);
+  qText.textContent = q.q;
+  qSub.textContent = `Category: ${currentCategory.toUpperCase()} · Difficulty: ${currentLevel}`;
+  answersDiv.innerHTML = '';
+  q.choices.forEach((choice, idx) => {
+    const b = document.createElement('div'); b.className='answer'; b.textContent = choice;
+    b.onclick = () => handleAnswer(idx === q.a, b);
+    answersDiv.appendChild(b);
+  });
+}
+
+function handleAnswer(isCorrect, btnEl) {
+  // visual + sound
+  if (isCorrect) { btnEl.classList.add('correct'); playTone(880,0.12); }
+  else { btnEl.classList.add('wrong'); playTone(220,0.12); }
+
+  if (gameMode === 'single') {
+    if (isCorrect) {
+      // both teams lose 1 life
+      teams.faith.lives = Math.max(0, teams.faith.lives - 1);
+      teams.hope.lives = Math.max(0, teams.hope.lives - 1);
+      player.score++;
+    } else {
+      player.lives = Math.max(0, player.lives - 1);
+    }
+    updateUI();
+    setTimeout(()=>{
+      checkEndConditions();
+    }, 700);
+  } else { // team mode
+    if (isCorrect) {
+      teams[currentTeam].players[currentPlayerIndex].score++;
+      teams[currentTeam].score++;
+    } else {
+      teams[currentTeam].lives = Math.max(0, teams[currentTeam].lives - 1);
+    }
+    updateUI();
+    setTimeout(()=>{
+      if (checkEndConditions()) return;
+      advanceTurn();
+      chooseCategory();
+    }, 700);
+  }
+}
+
+function advanceTurn() {
+  if (currentTeam === 'faith') {
+    currentTeam = 'hope';
+  } else {
+    currentTeam = 'faith';
+    currentPlayerIndex = (currentPlayerIndex + 1) % 5;
+  }
+  updateTurnLabel();
+  renderTeamsList();
+}
+
+function checkEndConditions() {
+  if (gameMode === 'single') {
+    if (player.lives <= 0) {
+      qText.textContent = 'Game Over — You lost.';
+      answersDiv.innerHTML = '';
+      turnLabel.textContent = 'Game Over';
+      return true;
+    }
+    if (teams.faith.lives <= 0 && teams.hope.lives <= 0) {
+      qText.textContent = 'You Win — Both teams eliminated!';
+      answersDiv.innerHTML = '';
+      turnLabel.textContent = 'You Win';
+      return true;
+    }
+    chooseCategory();
+    return false;
+  } else {
+    if (teams.faith.lives <= 0) {
+      qText.textContent = 'Girls Win! Boys have no lives left.';
+      answersDiv.innerHTML = '';
+      turnLabel.textContent = 'Game Over';
+      return true;
+    }
+    if (teams.hope.lives <= 0) {
+      qText.textContent = 'Boys Win! Girls have no lives left.';
+      answersDiv.innerHTML = '';
+      turnLabel.textContent = 'Game Over';
+      return true;
+    }
+    return false;
+  }
+}
+
+// Buttons
+document.getElementById('singlePlayerBtn').addEventListener('click', ()=>{
+  gameMode = 'single';
+  resetAll();
+  player.lives = 3; player.score = 0;
+  updateUI();
+  chooseCategory();
+  skipBtn.style.display = 'inline-block';
+});
+
+document.getElementById('teamModeBtn').addEventListener('click', ()=>{
+  gameMode = 'team';
+  resetAll();
+  currentTeam = 'faith'; currentPlayerIndex = 0;
+  updateUI();
+  chooseCategory();
+  skipBtn.style.display = 'inline-block';
+});
+
+skipBtn.addEventListener('click', ()=>{
+  if (gameMode === 'team') {
+    advanceTurn();
+    chooseCategory();
+  } else {
+    chooseCategory();
+  }
+});
+
+resetBtn.addEventListener('click', ()=>{
+  if (confirm('Reset scores and lives?')) resetAll();
+});
+
+function resetAll() {
+  player.lives = 3; player.score = 0;
+  teams.faith.lives = 3; teams.hope.lives = 3;
+  teams.faith.score = 0; teams.hope.score = 0;
+  teams.faith
+
